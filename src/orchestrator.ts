@@ -79,7 +79,7 @@ export class DiaryOrchestrator extends BasicCompactionEngine {
     // stores, so the local prepared journal is a recoverable publication barrier.
     if (!await this.ctx.sessions.flush(agent.session)) throw new Error('缺少会话持久化提供方，拒绝压缩')
     const span = captureSpan(agent.session, input.messages)
-    const { config, store, client } = this.memory
+    const { config, store, client } = this.memory.snapshot()
     if (!config.apiKey) throw new Error('请先配置百炼 apiKey；原会话上下文已保留')
     const existing = store.findSource(config.namespace, agent.session.id, span.sourceHash, client.embeddingKey)
     if (existing?.state === 'committed') throw new Error('日记片段已经提交，拒绝重复压缩')

@@ -29,23 +29,35 @@ export interface RecallHit {
 }
 
 export class RetrievalService extends Service {
-  readonly config: ResolvedConfig
-  readonly client: BailianClient
   readonly store: MemoryStore
   readonly lifetime = new AbortController()
   private readonly jobs = new Set<Promise<unknown>>()
   private readonly recovery = new WeakMap<Session, Promise<void>>()
+  private readonly configuration: () => ResolvedConfig
+  private readonly fixedClient?: BailianClient
+  private cachedClient?: { key: string; client: BailianClient }
 
-  constructor(ctx: Context, config: ResolvedConfig, dependencies: { store?: MemoryStore; client?: BailianClient } = {}) {
+  constructor(ctx: Context, config: ResolvedConfig | (() => ResolvedConfig), dependencies: { store?: MemoryStore; client?: BailianClient } = {}) {
     super(ctx, 'diaryMemory')
-    this.config = config
-    this.store = dependencies.store ?? new MemoryStore(config.databasePath)
-    this.client = dependencies.client ?? new BailianClient(config, { signal: this.lifetime.signal })
+    this.configuration = typeof config === 'function' ? config : () => config
+    this.store = dependencies.store ?? new MemoryStore(this.config.databasePath)
+    this.fixedClient = dependencies.client
     ctx.effect(() => () => this.dispose(), 'diaryMemory.lifecycle()')
   }
 
+  get config(): ResolvedConfig { return this.configuration() }
+  get client(): BailianClient { return this.snapshot().client }
+
+  /** One operation keeps its route and vector space even if settings change in flight. */
+  snapshot(): { config: ResolvedConfig; client: BailianClient; store: MemoryStore } {
+    const config = this.config
+    const key = JSON.stringify([config.apiKey, config.baseUrl, config.embeddingModel, config.embeddingDimensions, config.embeddingParameters, config.rerankModel, config.rerankParameters, config.timeoutMs, config.retries])
+    if (!this.fixedClient && this.cachedClient?.key !== key) this.cachedClient = { key, client: new BailianClient(config, { signal: this.lifetime.signal }) }
+    return { config, client: this.fixedClient ?? this.cachedClient!.client, store: this.store }
+  }
+
   async initialize(): Promise<void> {
-    this.ctx.sessionProjections.register(diaryProjection)
+    await this.ctx.sessionProjections.register(diaryProjection)
     this.ctx.on('session/created', session => {
       void this.track(() => this.reconcile(session)).catch(() => this.ctx.logger.warn('日记恢复未完成；保留待提交记录，下次使用时重试'))
     })
@@ -76,21 +88,22 @@ export class RetrievalService extends Service {
 
   recall(query: string, options: RecallOptions = {}): Promise<RecallHit[]> {
     return this.track(async () => {
+      const { config, client } = this.snapshot()
       const text = query.trim()
       if (!text || text.length > 8000) throw new TypeError('recall query 必须为 1–8000 字符')
-      const limit = options.limit ?? this.config.recallCount
-      if (!Number.isInteger(limit) || limit < 1 || limit > this.config.candidateCount) throw new TypeError('recall limit 超出候选数量')
+      const limit = options.limit ?? config.recallCount
+      if (!Number.isInteger(limit) || limit < 1 || limit > config.candidateCount) throw new TypeError('recall limit 超出候选数量')
       const signal = AbortSignal.any([this.lifetime.signal, ...options.signal ? [options.signal] : []])
       signal.throwIfAborted()
-      const namespace = this.config.namespace
-      if (!this.store.count(namespace, this.client.embeddingKey)) {
+      const namespace = config.namespace
+      if (!this.store.count(namespace, client.embeddingKey)) {
         if (this.store.count(namespace)) throw new Error('已有日记使用不同的 embedding 模型、维度或端点，请使用原向量配置或重新索引')
         return []
       }
-      const vector = await this.client.embed(text, { textType: 'query', signal })
-      const candidates = this.store.search(vector, { namespace, embeddingKey: this.client.embeddingKey, limit: this.config.candidateCount, sessionId: options.sessionId })
+      const vector = await client.embed(text, { textType: 'query', signal })
+      const candidates = this.store.search(vector, { namespace, embeddingKey: client.embeddingKey, limit: config.candidateCount, sessionId: options.sessionId })
       if (!candidates.length) return []
-      const ranking = await this.client.rerank(text, candidates.map(item => item.search_text), { topN: Math.min(limit, candidates.length), signal })
+      const ranking = await client.rerank(text, candidates.map(item => item.search_text), { topN: Math.min(limit, candidates.length), signal })
       signal.throwIfAborted()
       return ranking.map(item => {
         const match = candidates[item.index]

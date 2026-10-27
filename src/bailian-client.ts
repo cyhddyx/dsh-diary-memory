@@ -1,5 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises'
 import type { ResolvedConfig } from './config.js'
+import { stableParameters } from './model-parameters.js'
 
 interface BailianFailure {
   status?: number
@@ -38,7 +39,10 @@ export class BailianClient {
     this.fetch = fetchImpl
     this.signal = signal
     // Model names alone do not identify the vector space across endpoints/dimensions.
-    this.embeddingKey = JSON.stringify([config.baseUrl, config.embeddingModel, config.embeddingDimensions])
+    const space: unknown[] = [config.baseUrl, config.embeddingModel, config.embeddingDimensions]
+    // Keep the original vector-space key when no extra parameters were chosen.
+    if (Object.keys(config.embeddingParameters).length) space.push(stableParameters(config.embeddingParameters))
+    this.embeddingKey = JSON.stringify(space)
   }
 
   async request(path: string, body: unknown, callerSignal?: AbortSignal): Promise<unknown> {
@@ -95,7 +99,7 @@ export class BailianClient {
     const output = await this.request('/api/v1/services/embeddings/text-embedding/text-embedding', {
       model: embeddingModel,
       input: { texts: [text] },
-      parameters: { text_type: textType, dimension: embeddingDimensions },
+      parameters: { ...this.config.embeddingParameters, text_type: textType, dimension: embeddingDimensions },
     }, signal) as { embeddings?: { text_index?: unknown; embedding?: unknown }[] }
     if (output.embeddings?.length !== 1 || output.embeddings[0].text_index !== 0) throw new BailianError('百炼 embedding 的 text_index 无效')
     return validateVector(output.embeddings[0].embedding, embeddingDimensions)
@@ -108,7 +112,7 @@ export class BailianClient {
     const output = await this.request('/api/v1/services/rerank/text-rerank/text-rerank', {
       model: this.config.rerankModel,
       input: { query, documents },
-      parameters: { top_n: topN, return_documents: false },
+      parameters: { return_documents: false, ...this.config.rerankParameters, top_n: topN },
     }, signal) as { results?: RerankResult[] }
     if (!Array.isArray(output.results) || output.results.length !== topN) throw new BailianError('百炼 rerank 结果数量无效')
     const seen = new Set()

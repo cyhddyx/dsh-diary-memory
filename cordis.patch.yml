@@ -3,7 +3,6 @@
     - id: diary-memory
       name: dsh-diary-memory
       config:
-        apiKey: ''
         compressionRounds: 20
         retainRounds: 2
         namespace: companion

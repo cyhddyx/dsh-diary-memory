@@ -10,7 +10,7 @@ test('bundle declares a companion preset with one isolated native compaction pro
   assert.equal(patch.length, 1)
   const [memory, preset] = patch[0].insert
   assert.equal(memory.name, 'dsh-diary-memory')
-  assert.equal(memory.config.apiKey, '')
+  assert.equal(Object.hasOwn(memory.config, 'apiKey'), false)
   assert.equal(preset.config.id, 'diary-companion')
   const group = preset.config.plugins.find(plugin => plugin.group)
   assert.deepEqual(group.isolate, { compaction: true })
@@ -21,11 +21,13 @@ test('bundle declares a companion preset with one isolated native compaction pro
 
 test('package exports compiled entries, native peer contracts, localized metadata and an original SVG', () => {
   const manifest = JSON.parse(read('package.json'))
-  assert.equal(manifest.engines.dsh, '0.2.1-rc.3')
-  for (const specifier of ['.', './compaction', './tools']) {
+  assert.equal(manifest.engines.dsh, '>=0.2.1-rc.2 <0.3.0')
+  for (const specifier of ['.', './compaction', './tools', './client']) {
     const entry = manifest.exports[specifier]
     assert.ok(existsSync(new URL(`../${typeof entry === 'string' ? entry : entry.default}`, import.meta.url)))
   }
+  assert.equal(manifest.dsh.client.platform, 'web')
+  assert.ok(manifest.dsh.client.inject.includes('@deepseek-ai/dsh-client-ui-settings'))
   for (const native of ['@deepseek-ai/cordis', '@deepseek-ai/dsh-compaction-basic', '@deepseek-ai/dsh-llm']) {
     assert.ok(manifest.peerDependencies[native])
     assert.equal(manifest.peerDependenciesMeta[native].optional, true)

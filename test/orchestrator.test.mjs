@@ -1,4 +1,4 @@
-import test from 'node:test'
+import test, { describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { createAssistantMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -6,9 +6,12 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { toolPairingBalancedAfter, toolPairingBalancedBefore } from '@deepseek-ai/dsh-compaction'
 import { captureSpan, selectRoundRange } from '../lib/diary.js'
-import { fixture, conversation, appendRound, diaryBody } from './helpers.mjs'
+import { fixture as baseFixture, conversation, appendRound, diaryBody } from './helpers.mjs'
 
 const signal = () => new AbortController().signal
+
+for (const existingSession of [false, true]) describe(existingSession ? 'selected existing sessions' : 'companion preset', () => {
+const fixture = (t, options) => baseFixture(t, { ...options, existingSession })
 
 test('round threshold writes the diary, embeds, then commits through native compaction', async t => {
   const f = await fixture(t)
@@ -268,4 +271,5 @@ test('a missing Bailian key prevents a model call or context replacement', async
   await assert.rejects(f.engine.compactRegion(range.start, range.end, f.agent, signal()), /apiKey/)
   assert.deepEqual(f.session.surface.nodes, nodes)
   assert.equal(f.calls.model.length, 0)
+})
 })

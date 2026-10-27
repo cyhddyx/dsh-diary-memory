@@ -1,7 +1,7 @@
 import { build } from 'esbuild'
 
 // Match DSH's module-table factory protocol; native primitives and React are shared.
-export const clientExternals = ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives']
+export const clientExternals = ['react', 'react/jsx-runtime', '@deepseek-ai/dsh-client-ui-primitives', '@deepseek-ai/dsh-client-store']
 await build({
   entryPoints: ['src/client/index.ts'], outfile: 'lib/client.js', bundle: true,
   platform: 'browser', format: 'cjs', target: 'es2022', jsx: 'automatic',

@@ -8,6 +8,10 @@ import { resolveConfig } from '../lib/config.js'
 import { BailianClient } from '../lib/bailian-client.js'
 import { RetrievalService } from '../lib/retrieval-service.js'
 import DiaryOrchestrator from '../lib/orchestrator.js'
+import { BasicCompactionEngine } from '@deepseek-ai/dsh-compaction-basic'
+import { createScope } from '@deepseek-ai/dsh-scope'
+import ToolsService from '@deepseek-ai/dsh-tools'
+import { SessionMemory } from '../lib/session-memory.js'
 
 export function diaryBody(seq = 0, overrides = {}) {
   return {
@@ -27,7 +31,7 @@ export function fullDiary(seq = 0, overrides = {}) {
   return { ...diaryBody(seq, overrides), recordedAt: '2026-10-27T12:00:00.000Z', author: { provider: 'test', model: 'diary-test' } }
 }
 
-export async function fixture(t, { config: overrides = {}, controls = {}, filename = ':memory:', flush = true } = {}) {
+export async function fixture(t, { config: overrides = {}, controls = {}, filename = ':memory:', flush = true, nativeEngine = false, existingSession = false, driver } = {}) {
   const ctx = new Context()
   new SessionStore(ctx)
   new SessionProjectionRegistry(ctx)
@@ -48,8 +52,8 @@ export async function fixture(t, { config: overrides = {}, controls = {}, filena
       yield { type: 'finish', reason: { kind: controls.finish ?? 'stop' } }
     }
   }
-  ctx.llm.registerAdapter(['test'], new DiaryAdapter())
-  const config = resolveConfig({
+  ctx.llm.registerAdapter(['test', 'writer'], new DiaryAdapter())
+  let config = resolveConfig({
     apiKey: 'unit-test-only-key', databasePath: filename, embeddingDimensions: 3,
     compressionRounds: 3, retainRounds: 1, retries: 0, autoRecall: false, ...overrides,
   }, {})
@@ -66,10 +70,12 @@ export async function fixture(t, { config: overrides = {}, controls = {}, filena
     if (controls.flushFailureAfter !== undefined && calls.flush > controls.flushFailureAfter) throw new Error('simulated disk full')
     calls.durable = structuredClone(session.snapshotEvents())
   })
-  const memory = new RetrievalService(ctx, config, { client })
+  const { MemoryStore } = await import('../lib/memory-store.js')
+  const memory = new RetrievalService(ctx, () => config, { client, ...(driver ? { store: new MemoryStore(filename, { driver }) } : {}) })
   await memory.initialize()
-  const engine = new DiaryOrchestrator(ctx)
-  t.after(() => memory.dispose())
+  const engine = nativeEngine || existingSession ? new BasicCompactionEngine(ctx, { headroomTokens: 8192, maxTokens: 3000 }) : new DiaryOrchestrator(ctx)
+  if (controls.nativeSummarize) engine.summarize = controls.nativeSummarize
+  const nativeMethods = Object.fromEntries(['summarize', 'compactIfNeeded', 'compactRegion', 'compactNow'].map(key => [key, engine[key]]))
   const session = ctx.sessions.create(`test-${randomUUID()}`)
   const agent = {
     id: session.id, session, ctx, options: { provider: 'test', model: 'diary-test' },
@@ -79,7 +85,19 @@ export async function fixture(t, { config: overrides = {}, controls = {}, filena
       return job(new AbortController().signal).finally(() => { this.maintenance = false })
     },
   }
-  return { ctx, config, client, memory, engine, session, agent, calls, controls }
+  let bridge, scope
+  if (existingSession) {
+    scope = createScope(ctx, agent)
+    agent.ctx = scope.ctx
+    ctx.provide('systemPrompt', { tools: () => {} })
+    new ToolsService(ctx)
+    ctx.provide('agents', { list: () => [agent] })
+    ctx.provide('agentPresets', { serviceFor: () => engine })
+    config = resolveConfig({ ...config, sessionIds: [session.id] }, {})
+    bridge = new SessionMemory(ctx, memory)
+  }
+  t.after(async () => { await bridge?.dispose(); await scope?.dispose(); await memory.dispose() })
+  return { ctx, config, client, memory, engine, session, agent, calls, controls, bridge, nativeMethods, updateConfig: patch => { config = resolveConfig({ ...config, ...patch }, {}) } }
 }
 
 export function appendRound(session, turn, { tool = false, open = false, prompt = '雨天一起喝茶。'.repeat(400) } = {}) {

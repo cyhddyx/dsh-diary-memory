@@ -1,6 +1,6 @@
 {
   "name": "dsh-diary-memory",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "为 DSH 的陪伴与个人数字分身提供有温度、可演化的日记记忆、百炼检索和安全压缩。",
   "type": "module",
   "main": "./lib/index.js",
@@ -55,7 +55,6 @@
     "prepack": "npm run build"
   },
   "dependencies": {
-    "better-sqlite3": "^12.4.1",
     "zod": "4.4.3"
   },
   "peerDependencies": {
@@ -68,7 +67,10 @@
     "@deepseek-ai/dsh-session-projection": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-settings": ">=0.2.1-rc.2 <0.3.0",
     "@deepseek-ai/dsh-tools": ">=0.2.1-rc.2 <0.3.0",
-    "@deepseek-ai/schemastery": "~3.18.5"
+    "@deepseek-ai/schemastery": "~3.18.5",
+    "better-sqlite3": "^12.4.1",
+    "@deepseek-ai/dsh-agent-preset-registry": ">=0.2.1-rc.2 <0.3.0",
+    "@deepseek-ai/dsh-scope": ">=0.2.1-rc.2 <0.3.0"
   },
   "peerDependenciesMeta": {
     "@deepseek-ai/cordis": {
@@ -100,13 +102,26 @@
     },
     "@deepseek-ai/dsh-settings": {
       "optional": true
+    },
+    "better-sqlite3": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-agent-preset-registry": {
+      "optional": true
+    },
+    "@deepseek-ai/dsh-scope": {
+      "optional": true
     }
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.5",
     "@deepseek-ai/cosmokit": "1.8.6",
     "@deepseek-ai/dsh-agent": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-agent-loop": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-agent-preset": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-agent-preset-registry": "0.2.1-rc.3",
     "@deepseek-ai/dsh-api-remotes": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-api-session-controller": "0.2.1-rc.3",
     "@deepseek-ai/dsh-app-boot": "0.2.1-rc.3",
     "@deepseek-ai/dsh-client-store": "0.2.1-rc.3",
     "@deepseek-ai/dsh-client-ui-primitives": "0.2.1-rc.3",
@@ -117,6 +132,7 @@
     "@deepseek-ai/dsh-compaction-basic": "0.2.1-rc.3",
     "@deepseek-ai/dsh-config-editor": "0.2.1-rc.3",
     "@deepseek-ai/dsh-llm": "0.2.1-rc.3",
+    "@deepseek-ai/dsh-scope": "0.2.1-rc.3",
     "@deepseek-ai/dsh-session": "0.2.1-rc.3",
     "@deepseek-ai/dsh-session-projection": "0.2.1-rc.3",
     "@deepseek-ai/dsh-settings": "0.2.1-rc.3",
@@ -153,7 +169,8 @@
     "simple-icons": "16.31.0",
     "typescript": "^5.9.3",
     "yaml": "^2.8.1",
-    "zustand": "5.0.16"
+    "zustand": "5.0.16",
+    "better-sqlite3": "^12.4.1"
   },
   "dsh": {
     "client": {

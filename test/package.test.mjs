@@ -22,6 +22,9 @@ test('bundle declares a companion preset with one isolated native compaction pro
 test('package exports compiled entries, native peer contracts, localized metadata and an original SVG', () => {
   const manifest = JSON.parse(read('package.json'))
   assert.equal(manifest.engines.dsh, '>=0.2.1-rc.2 <0.3.0')
+  assert.equal(manifest.dependencies?.['better-sqlite3'], undefined)
+  assert.equal(manifest.optionalDependencies?.['better-sqlite3'], undefined)
+  assert.equal(manifest.peerDependenciesMeta['better-sqlite3'].optional, true)
   for (const specifier of ['.', './compaction', './tools', './client']) {
     const entry = manifest.exports[specifier]
     assert.ok(existsSync(new URL(`../${typeof entry === 'string' ? entry : entry.default}`, import.meta.url)))

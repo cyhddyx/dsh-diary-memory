@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { validateModelParameters } from './model-parameters.js'
 import type { ModelParameters } from './model-parameters.js'
+import { validateSessionIds } from './session-selection.js'
 
 export interface DiaryConfig {
   apiKey: string
@@ -26,6 +27,7 @@ export interface DiaryConfig {
   diaryInputMaxChars: number
   recentDiaryCount: number
   autoRecall: boolean
+  sessionIds: string[]
 }
 export type ResolvedConfig = Readonly<DiaryConfig>
 
@@ -51,6 +53,7 @@ export const defaults = Object.freeze({
   diaryInputMaxChars: 200000,
   recentDiaryCount: 3,
   autoRecall: true,
+  sessionIds: [] as string[],
 })
 
 const fields = {
@@ -75,10 +78,11 @@ const fields = {
   diaryInputMaxChars: z.number().step(1).min(1000).default(defaults.diaryInputMaxChars),
   recentDiaryCount: z.number().step(1).min(0).max(10).default(defaults.recentDiaryCount),
   autoRecall: z.boolean().default(true).description('每个新用户输入自动检索日记，接纳到当前步骤并写入可重放的上下文。'),
+  sessionIds: z.array(z.string()).default([]).description('在保留原预设的情况下启用记忆的已有会话 ID。'),
 }
 
 const ValueConfig: z<DiaryConfig> = z.object(fields)
-export const liveConfigFields = ['apiKey', 'baseUrl', 'embeddingModel', 'embeddingDimensions', 'embeddingParameters', 'rerankModel', 'rerankParameters', 'compressionRounds', 'retainRounds', 'candidateCount', 'recallCount', 'autoRecall'] as const
+export const liveConfigFields = ['apiKey', 'baseUrl', 'embeddingModel', 'embeddingDimensions', 'embeddingParameters', 'rerankModel', 'rerankParameters', 'compressionRounds', 'retainRounds', 'candidateCount', 'recallCount', 'autoRecall', 'sessionIds', 'diaryProvider', 'diaryModel'] as const
 export type LiveConfigField = typeof liveConfigFields[number]
 export type PluginConfig = { [K in keyof DiaryConfig]: K extends LiveConfigField ? DiaryConfig[K] | { get(): DiaryConfig[K] | undefined } : DiaryConfig[K] }
 
@@ -120,6 +124,8 @@ export function resolveConfig(input: Partial<DiaryConfig> = {}, env: NodeJS.Proc
   config.diaryProvider = config.diaryProvider.trim()
   config.diaryModel = config.diaryModel.trim()
   if (Boolean(config.diaryProvider) !== Boolean(config.diaryModel)) throw new Error('diaryProvider 和 diaryModel 必须同时设置')
+  if (config.diaryProvider.length > 200 || config.diaryModel.length > 200) throw new Error('写日记的提供方与模型名不能超过 200 字符')
+  config.sessionIds = validateSessionIds(config.sessionIds)
   for (const key of ['namespace', 'embeddingModel', 'rerankModel'] as const) {
     config[key] = config[key].trim()
     if (!config[key] || config[key].length > 200) throw new Error(`${key} 不能为空且不能超过 200 字符`)

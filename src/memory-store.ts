@@ -1,4 +1,5 @@
-import Database from 'better-sqlite3'
+import { openDatabase } from './sqlite.js'
+import type { SqliteConnection, SqliteDriver } from './sqlite.js'
 import { mkdirSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -66,10 +67,13 @@ function decodeRow(row: RawDiary | undefined): DiaryRecord | null {
 
 /** SQLite-backed exact cosine index. Prepared diaries never enter the recall index. */
 export class MemoryStore {
-  readonly db: Database.Database
-  constructor(filename: string) {
+  readonly db: SqliteConnection
+  readonly backend: 'better-sqlite3' | 'node:sqlite'
+  constructor(filename: string, options: { driver?: SqliteDriver } = {}) {
     if (filename !== ':memory:') mkdirSync(dirname(filename), { recursive: true })
-    this.db = new Database(filename)
+    const connection = openDatabase(filename, options.driver)
+    this.db = connection.db
+    this.backend = connection.backend
     try {
       this.db.pragma('busy_timeout = 5000')
       this.db.pragma('journal_mode = WAL')
@@ -138,7 +142,7 @@ export class MemoryStore {
   }
 
   pending(sessionId: string): DiaryRecord[] {
-    return (this.db.prepare("SELECT * FROM diaries WHERE session_id=? AND state='prepared' ORDER BY created_at,id").all(sessionId) as RawDiary[]).map(row => decodeRow(row))
+    return (this.db.prepare("SELECT * FROM diaries WHERE session_id=? AND state='prepared' ORDER BY created_at,id").all(sessionId) as unknown as RawDiary[]).map(row => decodeRow(row))
   }
 
   commit(id: string, checkpointSeq: number): void {
@@ -152,7 +156,7 @@ export class MemoryStore {
   }
 
   recent(namespace: string, limit = 3): DiaryRecord[] {
-    return (this.db.prepare("SELECT * FROM diaries WHERE namespace=? AND state='committed' ORDER BY committed_at DESC, rowid DESC LIMIT ?").all(namespace, limit) as RawDiary[]).map(row => decodeRow(row))
+    return (this.db.prepare("SELECT * FROM diaries WHERE namespace=? AND state='committed' ORDER BY committed_at DESC, rowid DESC LIMIT ?").all(namespace, limit) as unknown as RawDiary[]).map(row => decodeRow(row))
   }
 
   count(namespace: string, embeddingKey?: string): number {

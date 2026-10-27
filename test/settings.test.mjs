@@ -14,6 +14,7 @@ const output = resolve('.local/settings-tests/client.mjs')
 mkdirSync(resolve('.local/settings-tests'), { recursive: true })
 await build({
   stdin: { resolveDir: process.cwd(), contents: `export * from './src/client/index.ts';
+    export * from './src/client/choices.ts';
     import { SettingsForm, SettingsSecretField, SettingsValueField, SettingsFormModel, settingsTextField, Switch } from '@deepseek-ai/dsh-client-ui-primitives';
     export const primitives = { SettingsForm, SettingsSecretField, SettingsValueField, SettingsFormModel, settingsTextField, Switch };` },
   outfile: output, bundle: true, format: 'esm', platform: 'node', target: 'es2022', jsx: 'automatic',
@@ -25,9 +26,9 @@ await build({
       ? undefined : { path: args.path, external: true, sideEffects: false })
   } }],
 })
-const { DiarySettingsController, DiarySettingsPage, primitives } = await import(pathToFileURL(output).href)
+const { DiarySettingsController, DiarySettingsPage, DiaryChoices, primitives } = await import(pathToFileURL(output).href)
 
-function formFixture({ writable = true, configured = true } = {}) {
+function formFixture({ writable = true, configured = true, choices } = {}) {
   let secret = configured ? 'existing-test-secret' : undefined
   let values = { ...defaults }; delete values.apiKey
   let revision = 1
@@ -50,7 +51,7 @@ function formFixture({ writable = true, configured = true } = {}) {
       return true
     },
   }
-  const controller = new DiarySettingsController(scope, () => secret !== undefined)
+  const controller = new DiarySettingsController(scope, () => secret !== undefined, choices)
   return { controller, scope, calls, get secret() { return secret }, externalChange() { revision++; for (const notify of listeners) notify() } }
 }
 
@@ -117,6 +118,52 @@ test('a rejected or stale save retains every draft and never replaces a newer co
   f.controller.dispose()
 })
 
+test('session selections and a dedicated writer save together, retaining credentials and unlisted selected sessions', async () => {
+  const choices = new DiaryChoices({ getSnapshot: () => ({ phase: 'ready', ids: ['s1'], byId: { s1: { id: 's1', displayTitle: '原来的聊天' } } }), subscribe: () => () => {} }, async () => ({ ok: true, value: { groups: [{ id: 'writer', name: '日记模型', models: [{ id: 'model-1', name: '模型一' }] }] } }))
+  await choices.refreshModels()
+  const f = formFixture({ choices })
+  const actions = f.controller.inject()
+  actions.toggleSession('s1', true)
+  actions.toggleSession('unlisted', true)
+  actions.chooseWriter(JSON.stringify(['writer', 'model-1']))
+  assert.deepEqual(f.controller.store.getSnapshot().selectedSessions, ['s1', 'unlisted'])
+  await f.controller.save()
+  assert.equal(f.calls.length, 1)
+  const saved = Object.fromEntries(f.calls[0].ops.map(op => [op.path[0], op.value]))
+  assert.deepEqual(saved, { diaryProvider: 'writer', diaryModel: 'model-1', sessionIds: ['s1', 'unlisted'] })
+  assert.equal(f.secret, 'existing-test-secret')
+  const html = renderToStaticMarkup(createElement(DiarySettingsPage, { ...actions, useDiarySettings: select => select(f.controller.store.getSnapshot()) }))
+  assert.match(html, /原来的聊天/)
+  assert.match(html, /unlisted/)
+  actions.toggleSession('unlisted', false)
+  assert.deepEqual(f.controller.store.getSnapshot().selectedSessions, ['s1'])
+  actions.chooseWriter('')
+  assert.equal(f.controller.store.getSnapshot().fields.diaryModel.text, '')
+  actions.edit('diaryProvider', 'incomplete-route')
+  await f.controller.save()
+  assert.equal(f.calls.length, 1)
+  f.controller.dispose()
+})
+
+test('metadata catalog filters subagents and stale model responses cannot replace the latest choices', async () => {
+  const listeners = new Set()
+  let snapshot = { phase: 'ready', ids: ['s1', 'child'], byId: { s1: { id: 's1', displayTitle: '会话一' }, child: { id: 'child', displayTitle: '子代理', origin: 'subagent' } } }
+  const pending = []
+  const choices = new DiaryChoices({ getSnapshot: () => snapshot, subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener) } }, () => { const request = Promise.withResolvers(); pending.push(request); return request.promise })
+  assert.deepEqual(choices.store.getSnapshot().sessions, [{ id: 's1', title: '会话一' }])
+  const refresh = choices.refreshModels()
+  pending[1].resolve({ ok: true, value: { groups: [{ id: 'new', name: '新路由', models: [{ id: 'model', name: '新模型' }] }] } })
+  await refresh
+  pending[0].resolve({ ok: true, value: { groups: [] } })
+  await Promise.resolve()
+  assert.equal(choices.store.getSnapshot().writers[0].provider, 'new')
+  snapshot = { phase: 'ready', ids: [], byId: {} }
+  for (const notify of listeners) notify()
+  assert.deepEqual(choices.store.getSnapshot().sessions, [])
+  choices.dispose()
+  assert.equal(listeners.size, 0)
+})
+
 test('settings page renders native password and manual model/JSON controls without diary model parameters or existing credentials', () => {
   const f = formFixture()
   const face = f.controller.inject()
@@ -124,7 +171,8 @@ test('settings page renders native password and manual model/JSON controls witho
   assert.match(html, /type="password"/)
   for (const id of ['embeddingModel', 'embeddingDimensions', 'rerankModel', 'embeddingParameters', 'rerankParameters']) assert.ok(html.includes(`id="diary-${id}"`))
   assert.equal(html.includes('existing-test-secret'), false)
-  assert.equal(html.includes('diaryModel'), false)
+  assert.ok(html.includes('id="diary-diaryModel"'))
+  assert.ok(html.includes('id="diary-diaryProvider"'))
   assert.equal(html.includes('temperature'), false)
   assert.ok(html.includes('保存配置'))
   f.controller.dispose()
@@ -140,10 +188,12 @@ test('read-only forms refuse writes, and the browser artifact uses the real DSH 
   assert.equal(registration.id, 'dsh-diary-memory')
   const require = createRequire(import.meta.url)
   const client = registration.factory(name => name === '@deepseek-ai/dsh-client-ui-primitives' ? primitives : require(name))
-  assert.deepEqual([...client.inject], ['slots', 'configForms'])
+  assert.deepEqual([...client.inject], ['slots', 'configForms', 'sessions', 'remote', 'remote.session'])
   const disposers = []
   const pages = []
   client.apply({
+    get: name => { assert.equal(name, 'sessions'); return { list: { getSnapshot: () => ({ phase: 'ready', ids: [], byId: {} }), subscribe: () => () => {} }, refresh: async () => {} } },
+    remote: { session: { modelCatalog: async () => ({ ok: true, value: { groups: [] } }) } },
     effect: create => { disposers.push(create()) },
     configForms: { get: () => f.scope, describe: () => ({ getSnapshot: () => ({ view: { namespaces: [] } }) }), whileServed: (_names, register) => register(new Set(['diary-memory'])) },
     slots: { inject: (_name, register) => register(), register: (options, component) => { pages.push({ options, component }); return () => {} } },

@@ -1,0 +1,1 @@
+{"meta":{"title":"Diary compaction","description":"Writes and indexes a diary before native DSH compaction, preserving tool call boundaries and recoverable commits."}}

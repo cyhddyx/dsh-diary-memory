@@ -6,27 +6,53 @@ TypeScript 编写的 DSH 插件，为长期陪伴和个人数字分身保存日�
 
 ## 安装与开始使用
 
-可直接从 [GitHub Releases](https://github.com/cyhddyx/dsh-diary-memory/releases) 下载已编译的 `.tgz` 安装包。若从源码开始，先克隆仓库并进入项目目录：
+### 通过 npm 安装（推荐）
+
+插件已发布到 [npm：dsh-diary-memory](https://www.npmjs.com/package/dsh-diary-memory)，可直接用 DSH 命令安装，无需克隆源码或编译。
+
+**DSH 桌面端：**先至少启动一次桌面端以初始化 profile，再完全退出应用，使用桌面端附带的 `dsh` 命令执行：
+
+```powershell
+dsh plugin --profile desktop add dsh-diary-memory
+```
+
+安装完成后重新打开 DSH。管理 `desktop` profile 应使用桌面端附带的命令；通过 npm 单独安装的 DSH CLI 不能修改这个 profile。桌面端的命令与 profile 归属见 [官方说明](https://github.com/deepseek-ai/deepseek-harness/blob/main/apps/desktop/README.zh.md#bundled-command-runtime)。
+
+**Web 或其他 CLI profile：**将 `--profile` 设为实际使用的 profile 名称。例如，安装到 `web`：
+
+```sh
+dsh plugin --profile web add dsh-diary-memory
+```
+
+插件按 profile 安装；安装到 `web` 不会同时装入 `desktop`。如需固定当前版本，将包名写为 `dsh-diary-memory@0.1.0`。由 DSH 管理对应 profile 的依赖与组合包配置；安装结果提示 `restart-required` 时重启对应的 DSH 进程。
+
+### 首次配置
+
+1. 在插件组件 `diary-memory` 的配置中填写百炼 `apiKey`，或给 **DSH 进程**设置 `DSH_DIARY_BAILIAN_API_KEY` / `DASHSCOPE_API_KEY` 环境变量。Key 在 schema 中标记为 `secret`，不要写进仓库。
+2. 新建会话，选择 **“陪伴日记”**（preset ID `diary-companion`），并配置正常的 DSH 会话模型。日记默认使用该模型生成；百炼负责向量与重排。
+3. 默认完成 20 轮后，在下一次 `agent/pre-step` 触发日记压缩，保留最近 2 个用户输入及其后续消息。`/compact` 手动压缩和原生上下文溢出恢复也会先保存日记。
+
+安装包会新增预设，不会给现有的工作型预设添加记忆。已有会话保留原先的预设组合；要用于已有的自定义数字分身，应在其预设的原生 compaction 隔离组中，把 `@deepseek-ai/dsh-compaction-basic` 替换为 `dsh-diary-memory/compaction`，并在预设中加入 `dsh-diary-memory/tools`。保留自己的 persona 与其他工具。**不要在同一隔离组同时启用两个 compaction 提供方。**
+
+### 从本地安装或开发
+
+也可从 [GitHub Releases](https://github.com/cyhddyx/dsh-diary-memory/releases) 下载已编译的 `.tgz` 安装包，在下载目录执行：
+
+```powershell
+dsh plugin --profile desktop add ./dsh-diary-memory-0.1.0.tgz
+```
+
+桌面端仍需先完全退出。若从源码开始，先生成安装包，再用上面的命令安装：
 
 ```powershell
 git clone https://github.com/cyhddyx/dsh-diary-memory.git
 cd dsh-diary-memory
+npm ci
+npm run build
+npm pack
 ```
 
-1. 在此项目执行 `npm ci`、`npm run build`；分发包已包含编译后的 `lib/`，使用分发包时不需要编译。
-2. 在 DSH 的插件管理器中安装本地组合包，目标选择这个项目目录或生成的 `dsh-diary-memory-0.1.0.tgz`。也可以让 DSH 的插件管理工具执行：
-
-   ```json
-   { "action": "install_bundle", "target": "E:\\Project\\dsh-diary-memory" }
-   ```
-
-   由 DSH 的插件管理器维护 profile 配置与依赖。安装结果显示 `restart-required` 时重启 DSH。这是组合包安装，不是 MCP 服务器配置。
-
-3. 在插件组件 `diary-memory` 的配置中填写百炼 `apiKey`，或给 **DSH 进程**设置 `DSH_DIARY_BAILIAN_API_KEY` / `DASHSCOPE_API_KEY` 环境变量。Key 在 schema 中标记为 `secret`，不要写进仓库。
-4. 新建会话，选择 **“陪伴日记”**（preset ID `diary-companion`），并配置正常的 DSH 会话模型。日记默认使用该模型生成；百炼负责向量与重排。
-5. 默认完成 20 轮后，在下一次 `agent/pre-step` 触发日记压缩，保留最近 2 个用户输入及其后续消息。`/compact` 手动压缩和原生上下文溢出恢复也会先保存日记。
-
-安装包会新增预设，不会给现有的工作型预设添加记忆。已有会话保留原先的预设组合；要用于已有的自定义数字分身，应在其预设的原生 compaction 隔离组中，把 `@deepseek-ai/dsh-compaction-basic` 替换为 `dsh-diary-memory/compaction`，并在预设中加入 `dsh-diary-memory/tools`。保留自己的 persona 与其他工具。**不要在同一隔离组同时启用两个 compaction 提供方。**
+也可以在 DSH 的插件管理器中添加 npm 包名 `dsh-diary-memory`、本地 `.tgz` 或已构建的源码目录。
 
 `better-sqlite3` 是本机原生模块。安装器若提示它的构建脚本待处理，应按 DSH 的提示处理；其二进制必须匹配 DSH **宿主 Node.js** 的 ABI。开发时如果 npm 禁用了安装脚本，可针对这个依赖执行 `npm rebuild better-sqlite3 --ignore-scripts=false`。无需改用 Electron 渲染进程的 ABI。
 
